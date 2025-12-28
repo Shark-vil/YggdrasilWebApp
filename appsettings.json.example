@@ -1,0 +1,15 @@
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*",
+  "ConnectionStrings": {
+    "Postgres": "Host=localhost;Port=5432;Database=mcdb;Username=mcuser;Password=mcpass"
+  },
+  "Yggdrasil": {
+    "TexturesPrivateKeyPath": "C:\\Users\\example\\.certs\\key.pem"
+  }
+}
