@@ -1,0 +1,277 @@
+﻿@model YggdrasilWebApp.Models.Views.PonySkinViewModel
+
+@{
+    ViewData["Title"] = "Pony Skin";
+    var ok = TempData["Ok"] as string;
+    var err = TempData["Err"] as string;
+}
+
+<style>
+    .pony-viewer {
+        height: 460px;
+        border-radius: 12px;
+        overflow: hidden;
+        position: relative;
+        background: radial-gradient(ellipse at top, rgba(255,255,255,.12), rgba(0,0,0,.08));
+    }
+
+        .pony-viewer canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+        }
+
+    .pony-fallback {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: repeating-linear-gradient(45deg, rgba(0,0,0,.06), rgba(0,0,0,.06) 10px, rgba(255,255,255,.06) 10px, rgba(255,255,255,.06) 20px);
+    }
+
+        .pony-fallback img {
+            max-width: 70%;
+            max-height: 70%;
+            image-rendering: pixelated;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,.15);
+        }
+
+    .pony-hud {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        display: flex;
+        gap: 12px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 12px;
+        border-radius: 12px;
+        background: rgba(255,255,255,.85);
+        backdrop-filter: blur(8px);
+        box-shadow: 0 6px 20px rgba(0,0,0,.12);
+    }
+
+        .pony-hud .pose {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+    .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+</style>
+
+<div class="d-flex align-items-start justify-content-between mb-3">
+    <div>
+        <h2 class="mb-1">Pony Skin</h2>
+        <div class="text-muted">
+            Profile: <b>@Model.ProfileName</b>
+            <span class="mono text-muted">(@Model.ProfileId)</span>
+        </div>
+        @if (Model.UpdatedAtUtc != null)
+        {
+            <div class="text-muted small">Updated: @Model.UpdatedAtUtc.Value.ToString("u")</div>
+        }
+    </div>
+
+    <div class="text-end">
+        @if (Model.HasSkin)
+        {
+            <a class="btn btn-sm btn-outline-secondary" href="@Model.SkinImageUrl" target="_blank">Open PNG</a>
+        }
+    </div>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(ok))
+{
+    <div class="alert alert-success">@ok</div>
+}
+@if (!string.IsNullOrWhiteSpace(err))
+{
+    <div class="alert alert-danger">@err</div>
+}
+
+<div class="row g-4">
+    <div class="col-lg-7">
+
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <div><b>3D Preview</b></div>
+                <div class="text-muted small" id="webglState"></div>
+            </div>
+
+            <div class="card-body">
+                <div id="pce" class="pony-viewer border">
+                    <div class="pony-fallback" id="pceFallback">
+                        @if (Model.HasSkin)
+                        {
+                            <img id="fallbackImg" src="@Model.SkinImageUrl" alt="skin" />
+                        }
+                        else
+                        {
+                            <div class="text-muted">No skin yet</div>
+                        }
+                    </div>
+
+                    <div id="warning" class="d-none"></div>
+                </div>
+
+                <div class="pony-hud">
+                    <div class="pose" id="pos">
+                        <span class="text-muted small">Pose</span>
+                        <select class="form-select form-select-sm" style="width: 220px;">
+                            <option value="s">Stand</option>
+                            <option value="h">Holds the item</option>
+                            <option value="b">Bend down</option>
+                            <option value="r">Rest</option>
+                        </select>
+                    </div>
+
+                    <div class="text-muted small">
+                        <span class="me-2">LMB: rotate</span>
+                        <span class="me-2">RMB: pan</span>
+                        <span>Wheel: zoom</span>
+                    </div>
+                </div>
+
+                <textarea id="skin_data" class="d-none">@Model.SkinImageUrl</textarea>
+            </div>
+        </div>
+
+    </div>
+
+    <div class="col-lg-5">
+        <div class="card">
+            <div class="card-header"><b>Upload</b></div>
+            <div class="card-body">
+                <form method="post"
+                      asp-controller="PonySkin"
+                      asp-action="Upload"
+                      asp-route-profileId="@Model.ProfileId"
+                      enctype="multipart/form-data">
+                    @Html.AntiForgeryToken()
+
+                    <div class="mb-3">
+                        <label class="form-label">PNG file</label>
+                        <input id="skinFile" name="skin" type="file" accept="image/png" class="form-control" />
+                        <div class="form-text">
+                            Works with 64×32 + HD (128×64 / 256×128 / 512×256…) and 64×64 + HD (top half used).
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary w-100" type="submit">Upload / Replace</button>
+                </form>
+
+                <hr />
+
+                <form method="post"
+                      asp-controller="PonySkin"
+                      asp-action="Delete"
+                      asp-route-profileId="@Model.ProfileId">
+                    @Html.AntiForgeryToken()
+                    <button class="btn btn-outline-danger w-100" type="submit" @(Model.HasSkin ? "" : "disabled")>
+                        Delete skin
+                    </button>
+                </form>
+
+                @if (Model.HasSkin)
+                {
+                    <div class="small text-muted mt-3">
+                        <div class="mono text-break"><a href="@Model.SkinImageUrl" target="_blank">PUBLIC LINK TO THE SKIN IMAGE</a></div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="card mt-3">
+            <div class="card-header"><b>2D Preview</b></div>
+            <div class="card-body">
+                <div class="text-muted mb-2" id="fileInfo">Choose a PNG to preview locally.</div>
+                <div class="d-flex gap-3 flex-wrap">
+                    <div>
+                        <div class="text-muted small mb-1">Selected file</div>
+                        <img id="newPreview" class="border rounded d-none" style="max-width: 260px; image-rendering: pixelated;" />
+                    </div>
+                    <div>
+                        <div class="text-muted small mb-1">Current on server</div>
+                        @if (Model.HasSkin)
+                        {
+                            <img class="border rounded" style="max-width: 260px; image-rendering: pixelated;" src="@Model.SkinImageUrl" />
+                        }
+                        else
+                        {
+                            <div class="text-muted">—</div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <!-- vendor pony 3D -->
+    <script src="~/vendor/pony3d/Detector.js" asp-append-version="true"></script>
+    <script src="~/vendor/pony3d/three.min.js" asp-append-version="true"></script>
+    <script src="~/vendor/pony3d/three.OrbitControls.js" asp-append-version="true"></script>
+
+    <script src="~/vendor/pony3d/model.js" asp-append-version="true"></script>
+    <script src="~/vendor/pony3d/canvalist.js" asp-append-version="true"></script>
+    <script src="~/vendor/pony3d/pcview.js" asp-append-version="true"></script>
+
+    <script>
+        (function () {
+            const input = document.getElementById('skinFile');
+            const preview = document.getElementById('newPreview');
+            const info = document.getElementById('fileInfo');
+
+            async function fileToDataUrl(file) {
+                return new Promise((resolve, reject) => {
+                    const fr = new FileReader();
+                    fr.onload = () => resolve(fr.result);
+                    fr.onerror = reject;
+                    fr.readAsDataURL(file);
+                });
+            }
+
+            input?.addEventListener('change', async () => {
+                const f = input.files && input.files[0];
+                if (!f) {
+                    preview.classList.add('d-none');
+                    info.textContent = 'Choose a PNG to preview locally.';
+                    return;
+                }
+
+                if (!f.name.toLowerCase().endsWith('.png')) {
+                    preview.classList.add('d-none');
+                    info.textContent = 'Not a PNG.';
+                    return;
+                }
+
+                const dataUrl = await fileToDataUrl(f);
+
+                // 2D local preview
+                const img = new Image();
+                img.onload = () => {
+                    info.textContent = `Selected: ${f.name} (${img.width}x${img.height}), ${(f.size/1024).toFixed(1)} KB`;
+                    preview.src = dataUrl;
+                    preview.classList.remove('d-none');
+
+                    // 3D live update
+                    if (window.Pony3DPreview && typeof window.Pony3DPreview.setSkin === 'function') {
+                        window.Pony3DPreview.setSkin(dataUrl);
+                    }
+                };
+                img.onerror = () => {
+                    preview.classList.add('d-none');
+                    info.textContent = 'Failed to read image.';
+                };
+                img.src = dataUrl;
+            });
+        })();
+    </script>
+}

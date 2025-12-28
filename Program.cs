@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using YggdrasilWebApp.Contexts;
+using YggdrasilWebApp.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -8,6 +10,21 @@ builder.Services.AddControllersWithViews();
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
 	opt.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
+
+builder.Services.AddSingleton<PasswordHasher>();
+builder.Services.AddSingleton<TexturesService>();
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+	.AddCookie(opt =>
+	{
+		opt.LoginPath = "/account/login";
+		opt.AccessDeniedPath = "/account/login";
+		opt.Cookie.Name = "ygg_web_auth";
+		opt.SlidingExpiration = true;
+		opt.ExpireTimeSpan = TimeSpan.FromDays(30);
+	});
+
+builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
@@ -24,10 +41,12 @@ app.UseStaticFiles();
 
 app.UseRouting();
 
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllerRoute(
-    name: "default",
-    pattern: "{controller=Home}/{action=Index}/{id?}");
+	name: "default",
+	pattern: "{controller=Home}/{action=Index}/{id?}")
+   .RequireAuthorization();
 
 app.Run();

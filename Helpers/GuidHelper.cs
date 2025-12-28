@@ -8,4 +8,12 @@ public static class GuidHelper
 		if (Guid.TryParse(s, out g)) return g;
 		return null;
 	}
+
+	public static Guid? ParseGuidAny(string s)
+	{
+		if (string.IsNullOrWhiteSpace(s)) return null;
+		if (Guid.TryParseExact(s, "N", out var n)) return n;
+		if (Guid.TryParse(s, out var g)) return g;
+		return null;
+	}
 }
