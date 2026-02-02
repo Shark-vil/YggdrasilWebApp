@@ -130,12 +130,6 @@
                             <option value="r">Rest</option>
                         </select>
                     </div>
-
-                    <div class="text-muted small">
-                        <span class="me-2">LMB: rotate</span>
-                        <span class="me-2">RMB: pan</span>
-                        <span>Wheel: zoom</span>
-                    </div>
                 </div>
 
                 <textarea id="skin_data" class="d-none">@Model.SkinImageUrl</textarea>
@@ -159,11 +153,12 @@
                         <label class="form-label">PNG file</label>
                         <input id="skinFile" name="skin" type="file" accept="image/png" class="form-control" />
                         <div class="form-text">
-                            Works with 64×32 + HD (128×64 / 256×128 / 512×256…) and 64×64 + HD (top half used).
+                            64×32 + HD (128×64 / 256×128 / 512×256)
                         </div>
+                        <div class="text-muted mb-2" id="fileInfo">Choose a PNG to preview locally.</div>
                     </div>
 
-                    <button class="btn btn-primary w-100" type="submit">Upload / Replace</button>
+                    <button class="btn btn-primary w-100" type="submit">Upload new skin</button>
                 </form>
 
                 <hr />
@@ -177,37 +172,6 @@
                         Delete skin
                     </button>
                 </form>
-
-                @if (Model.HasSkin)
-                {
-                    <div class="small text-muted mt-3">
-                        <div class="mono text-break"><a href="@Model.SkinImageUrl" target="_blank">PUBLIC LINK TO THE SKIN IMAGE</a></div>
-                    </div>
-                }
-            </div>
-        </div>
-
-        <div class="card mt-3">
-            <div class="card-header"><b>2D Preview</b></div>
-            <div class="card-body">
-                <div class="text-muted mb-2" id="fileInfo">Choose a PNG to preview locally.</div>
-                <div class="d-flex gap-3 flex-wrap">
-                    <div>
-                        <div class="text-muted small mb-1">Selected file</div>
-                        <img id="newPreview" class="border rounded d-none" style="max-width: 260px; image-rendering: pixelated;" />
-                    </div>
-                    <div>
-                        <div class="text-muted small mb-1">Current on server</div>
-                        @if (Model.HasSkin)
-                        {
-                            <img class="border rounded" style="max-width: 260px; image-rendering: pixelated;" src="@Model.SkinImageUrl" />
-                        }
-                        else
-                        {
-                            <div class="text-muted">—</div>
-                        }
-                    </div>
-                </div>
             </div>
         </div>
     </div>
@@ -226,7 +190,6 @@
     <script>
         (function () {
             const input = document.getElementById('skinFile');
-            const preview = document.getElementById('newPreview');
             const info = document.getElementById('fileInfo');
 
             async function fileToDataUrl(file) {
@@ -241,13 +204,11 @@
             input?.addEventListener('change', async () => {
                 const f = input.files && input.files[0];
                 if (!f) {
-                    preview.classList.add('d-none');
                     info.textContent = 'Choose a PNG to preview locally.';
                     return;
                 }
 
                 if (!f.name.toLowerCase().endsWith('.png')) {
-                    preview.classList.add('d-none');
                     info.textContent = 'Not a PNG.';
                     return;
                 }
@@ -258,16 +219,13 @@
                 const img = new Image();
                 img.onload = () => {
                     info.textContent = `Selected: ${f.name} (${img.width}x${img.height}), ${(f.size/1024).toFixed(1)} KB`;
-                    preview.src = dataUrl;
-                    preview.classList.remove('d-none');
-
+                    
                     // 3D live update
                     if (window.Pony3DPreview && typeof window.Pony3DPreview.setSkin === 'function') {
                         window.Pony3DPreview.setSkin(dataUrl);
                     }
                 };
                 img.onerror = () => {
-                    preview.classList.add('d-none');
                     info.textContent = 'Failed to read image.';
                 };
                 img.src = dataUrl;

@@ -9,7 +9,7 @@ using YggdrasilWebApp.Services;
 namespace YggdrasilWebApp.Controllers;
 
 [ApiController]
-[Route("authserver")]
+[Route("api/yggdrasil/authserver")]
 public sealed class AuthServerController : ControllerBase
 {
 	private readonly AppDbContext _db;
@@ -142,7 +142,9 @@ public sealed class AuthServerController : ControllerBase
 	[HttpPost("validate")]
 	public async Task<IActionResult> Validate([FromBody] ValidateRequest req, CancellationToken ct)
 	{
-		var token = await _db.AccessTokens.FirstOrDefaultAsync(t => t.Token == req.AccessToken, ct);
+		var token = await _db.AccessTokens
+			.AsNoTracking()
+			.FirstOrDefaultAsync(t => t.Token == req.AccessToken, ct);
 		if (token is null || !token.IsActive) return Forbid();
 
 		if (!string.IsNullOrWhiteSpace(req.ClientToken) && token.ClientToken != req.ClientToken)
@@ -170,7 +172,9 @@ public sealed class AuthServerController : ControllerBase
 	{
 		var login = req.Username.Trim();
 
-		var user = await _db.Users.FirstOrDefaultAsync(x => x.Username == login || (x.Email != null && x.Email == login), ct);
+		var user = await _db.Users
+			.AsNoTracking()
+			.FirstOrDefaultAsync(x => x.Username == login || (x.Email != null && x.Email == login), ct);
 		if (user is null || !_hasher.Verify(req.Password, user.PasswordHash))
 			return Unauthorized(new { error = "ForbiddenOperationException", errorMessage = "Invalid credentials." });
 

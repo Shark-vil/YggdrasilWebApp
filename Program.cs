@@ -1,11 +1,23 @@
+using System.Net;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using YggdrasilWebApp.Contexts;
 using YggdrasilWebApp.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
+// ---------- Forwarded headers для nginx ----------
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+	// говорим asp.net, что мы доверяем X-Forwarded-For и X-Forwarded-Proto
+	options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+
+	// nginx сидит на этой же машине и шлёт запросы с 127.0.0.1
+	options.KnownProxies.Add(IPAddress.Loopback);
+});
+
+// ---------- MVC + сервисы ----------
 builder.Services.AddControllersWithViews();
 
 builder.Services.AddDbContext<AppDbContext>(opt =>
@@ -13,8 +25,10 @@ builder.Services.AddDbContext<AppDbContext>(opt =>
 
 builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<TexturesService>();
+builder.Services.AddSingleton<TokenGenerator>();
 
-builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+builder.Services
+	.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
 	.AddCookie(opt =>
 	{
 		opt.LoginPath = "/account/login";
@@ -28,15 +42,22 @@ builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// ---------- ПЕРВЫМ ДЕЛОМ: доверяем заголовкам от nginx ----------
+app.UseForwardedHeaders();
+
+// ---------- Продакшн-ошибки + HSTS ----------
 if (!app.Environment.IsDevelopment())
 {
-    app.UseExceptionHandler("/Home/Error");
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
-    app.UseHsts();
+	app.UseExceptionHandler("/Home/Error");
+	app.UseHsts();
 }
 
-app.UseHttpsRedirection();
+// ВАЖНО: не надо UseHttpsRedirection,
+// потому что HTTPS уже терминируется на nginx,
+// а Kestrel слушает только HTTP (5002).
+// Иначе он сам начнет пытаться редиректить на https, но не знает порт.
+// app.UseHttpsRedirection();
+
 app.UseStaticFiles();
 
 app.UseRouting();
@@ -44,9 +65,12 @@ app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();
 
+// ГЛОБАЛЬНЫЙ RequireAuthorization СНИМАЕМ,
+// иначе /authserver тоже будет требовать куку и редиректить на /account/login.
+// Авторизацию вешай атрибутами [Authorize] на нужные контроллеры/экшены.
 app.MapControllerRoute(
-	name: "default",
-	pattern: "{controller=Home}/{action=Index}/{id?}")
-   .RequireAuthorization();
+		name: "default",
+		pattern: "{controller=Home}/{action=Index}/{id?}");
+//   .RequireAuthorization(); // <- УБРАЛИ
 
 app.Run();

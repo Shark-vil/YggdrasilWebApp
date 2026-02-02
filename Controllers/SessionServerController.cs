@@ -7,7 +7,7 @@ using YggdrasilWebApp.Models.Yggdrasil;
 namespace YggdrasilWebApp.Controllers;
 
 [ApiController]
-[Route("sessionserver/session/minecraft")]
+[Route("api/yggdrasil/sessionserver/session/minecraft")]
 public sealed class SessionServerController : ControllerBase
 {
 	private readonly AppDbContext _db;

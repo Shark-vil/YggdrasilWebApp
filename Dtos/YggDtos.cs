@@ -1,4 +1,6 @@
-﻿namespace YggdrasilWebApp.Dtos;
+﻿using System.Text.Json.Serialization;
+
+namespace YggdrasilWebApp.Dtos;
 
 // ---------- Authserver requests ----------
 public sealed record AuthenticateRequest(
@@ -59,7 +61,20 @@ public sealed record RefreshResponse(
 );
 
 // ---------- Profile responses ----------
-public sealed record ProfileProperty(string Name, string Value, string? Signature);
+//public sealed record ProfileProperty(string Name, string Value, string? Signature);
+public sealed record ProfileProperty(
+	[property: JsonPropertyName("name")]
+	string Name,
+
+	[property: JsonPropertyName("value")]
+	string Value,
+
+	// КЛЮЧЕВОЕ: при null это поле ВООБЩЕ НЕ ПИШЕМ В JSON
+	[property: JsonPropertyName("signature")]
+	[property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+	string? Signature
+);
+
 
 public sealed record SessionProfileResponse(
 	string Id,

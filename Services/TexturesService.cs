@@ -28,6 +28,21 @@ public sealed class TexturesService
 		}
 	}
 
+	public bool VerifyExistingTextures(string valueBase64, string signatureBase64)
+	{
+		if (_rsa is null)
+			throw new InvalidOperationException("RSA не инициализирован (нет приватного ключа).");
+
+		var data = Encoding.UTF8.GetBytes(valueBase64);
+		var sig = Convert.FromBase64String(signatureBase64);
+
+		return _rsa.VerifyData(
+			data,
+			sig,
+			HashAlgorithmName.SHA1,
+			RSASignaturePadding.Pkcs1);
+	}
+
 	public (string value, string? signature) BuildSkinTextures(string profileIdN, string profileName, string skinUrl)
 	{
 		// Mojang-like payload: timestamp/profileId/profileName/textures.SKIN.url
@@ -59,4 +74,28 @@ public sealed class TexturesService
 
 		return (value, sig);
 	}
+
+	public string? GetPublicKeyPem()
+	{
+		if (_rsa is null)
+			return null;
+
+		// .NET 7+ — есть готовый ExportSubjectPublicKeyInfoPem
+#if NET7_0_OR_GREATER
+		return _rsa.ExportSubjectPublicKeyInfoPem();
+#else
+    // Для .NET 6 и ниже — руками собираем PEM
+    var info = _rsa.ExportSubjectPublicKeyInfo();
+    var base64 = Convert.ToBase64String(info);
+
+    var sb = new StringBuilder();
+    sb.AppendLine("-----BEGIN PUBLIC KEY-----");
+    for (int i = 0; i < base64.Length; i += 64)
+        sb.AppendLine(base64.Substring(i, Math.Min(64, base64.Length - i)));
+    sb.AppendLine("-----END PUBLIC KEY-----");
+
+    return sb.ToString();
+#endif
+	}
+
 }
