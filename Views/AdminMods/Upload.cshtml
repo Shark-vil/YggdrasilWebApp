@@ -5,38 +5,45 @@
 
 <h1>Upload mod</h1>
 
-<form asp-action="Upload" asp-controller="AdminMods" method="post" enctype="multipart/form-data">
+<form id="uploadForm">
     @Html.AntiForgeryToken()
 
     <div class="mb-3">
         <label asp-for="Name" class="form-label"></label>
-        <input asp-for="Name" class="form-control" />
+        <input asp-for="Name" class="form-control" id="name" />
         <span asp-validation-for="Name" class="text-danger"></span>
     </div>
 
     <div class="mb-3">
         <label asp-for="Version" class="form-label"></label>
-        <input asp-for="Version" class="form-control" />
+        <input asp-for="Version" class="form-control" id="version" />
         <span asp-validation-for="Version" class="text-danger"></span>
     </div>
 
     <div class="mb-3">
         <label asp-for="Description" class="form-label"></label>
-        <textarea asp-for="Description" class="form-control"></textarea>
+        <textarea asp-for="Description" class="form-control" id="description"></textarea>
         <span asp-validation-for="Description" class="text-danger"></span>
     </div>
 
     <div class="mb-3">
         <label asp-for="InstallPath" class="form-label"></label>
-        <input asp-for="InstallPath" class="form-control" />
+        <input asp-for="InstallPath" class="form-control" id="installPath" />
         <div class="form-text">Default: mods</div>
         <span asp-validation-for="InstallPath" class="text-danger"></span>
     </div>
 
     <div class="mb-3">
         <label asp-for="File" class="form-label"></label>
-        <input asp-for="File" type="file" class="form-control" />
+        <input asp-for="File" type="file" class="form-control" id="fileInput" />
         <span asp-validation-for="File" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <div class="progress" style="height: 22px;">
+            <div id="progressBar" class="progress-bar" role="progressbar" style="width:0%">0%</div>
+        </div>
+        <div id="status" class="form-text"></div>
     </div>
 
     <button type="submit" class="btn btn-primary">Upload</button>
@@ -45,4 +52,121 @@
 
 @section Scripts {
     <partial name="_ValidationScriptsPartial" />
+
+    <script>
+        (function () {
+            const form = document.getElementById('uploadForm');
+            const fileInput = document.getElementById('fileInput');
+            const progressBar = document.getElementById('progressBar');
+            const status = document.getElementById('status');
+
+            const token = form.querySelector('input[name="__RequestVerificationToken"]').value;
+
+            function setProgress(pct) {
+                const v = Math.max(0, Math.min(100, pct));
+                progressBar.style.width = v + '%';
+                progressBar.textContent = v + '%';
+            }
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                const file = fileInput.files && fileInput.files[0];
+                if (!file) {
+                    status.textContent = 'Choose a file.';
+                    return;
+                }
+
+                // 5MB чанки — норм дефолт
+                const CHUNK_SIZE = 5 * 1024 * 1024;
+
+                const payload = {
+                    name: document.getElementById('name').value || '',
+                    version: document.getElementById('version').value || '',
+                    description: document.getElementById('description').value || '',
+                    installPath: document.getElementById('installPath').value || '',
+                    originalFileName: file.name,
+                    totalBytes: file.size
+                };
+
+                status.textContent = 'Starting upload...';
+                setProgress(0);
+
+                // 1) start
+                const startResp = await fetch('@Url.Action("StartUpload", "AdminMods")', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!startResp.ok) {
+                    status.textContent = 'Start failed: ' + await startResp.text();
+                    return;
+                }
+
+                const startData = await startResp.json();
+                const uploadId = startData.uploadId;
+                const serverFileName = startData.fileName;
+
+                // 2) chunks
+                let offset = 0;
+                let index = 0;
+
+                status.textContent = 'Uploading chunks...';
+
+                while (offset < file.size) {
+                    const chunk = file.slice(offset, offset + CHUNK_SIZE);
+
+                    const chunkResp = await fetch(
+                        '@Url.Action("UploadChunk", "AdminMods")' + `?uploadId=${encodeURIComponent(uploadId)}&index=${index}&offset=${offset}`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/octet-stream'
+                                // если хочешь форсить антифорджери — добавь проверку на сервере и шли токен тут
+                            },
+                            body: chunk
+                        }
+                    );
+
+                    if (!chunkResp.ok) {
+                        status.textContent = 'Chunk failed: ' + await chunkResp.text();
+                        return;
+                    }
+
+                    offset += chunk.size;
+                    index++;
+
+                    const pct = Math.floor((offset / file.size) * 100);
+                    setProgress(pct);
+                }
+
+                // 3) finish
+                status.textContent = 'Finishing...';
+
+                const finishResp = await fetch('@Url.Action("FinishUpload", "AdminMods")', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'RequestVerificationToken': token
+                    },
+                    body: JSON.stringify({ uploadId: uploadId, fileName: serverFileName })
+                });
+
+                if (!finishResp.ok) {
+                    status.textContent = 'Finish failed: ' + await finishResp.text();
+                    return;
+                }
+
+                const finishData = await finishResp.json();
+                status.textContent = 'Done.';
+                setProgress(100);
+
+                window.location.href = finishData.redirectUrl;
+            });
+        })();
+    </script>
 }

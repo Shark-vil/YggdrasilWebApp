@@ -1,5 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using YggdrasilWebApp.Contexts;
@@ -15,6 +16,16 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 	// nginx сидит на этой же машине и шлёт запросы с 127.0.0.1
 	options.KnownProxies.Add(IPAddress.Loopback);
+});
+
+builder.Services.Configure<FormOptions>(o =>
+{
+	o.MultipartBodyLengthLimit = 1024L * 1024L * 1024L; // 1GB
+});
+
+builder.WebHost.ConfigureKestrel(o =>
+{
+	o.Limits.MaxRequestBodySize = 50L * 1024L * 1024L; // 50MB
 });
 
 // ---------- MVC + сервисы ----------
