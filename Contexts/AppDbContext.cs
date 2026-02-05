@@ -1,4 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
+using YggdrasilWebApp.Models.App;
 using YggdrasilWebApp.Models.Yggdrasil;
 
 namespace YggdrasilWebApp.Contexts;
@@ -11,6 +12,7 @@ public sealed class AppDbContext : DbContext
 	public DbSet<MinecraftProfileEntity> Profiles => Set<MinecraftProfileEntity>();
 	public DbSet<AccessTokenEntity> AccessTokens => Set<AccessTokenEntity>();
 	public DbSet<ServerJoinEntity> ServerJoins => Set<ServerJoinEntity>();
+	public DbSet<GameModEntity> GameMods => Set<GameModEntity>();
 
 	protected override void OnModelCreating(ModelBuilder modelBuilder)
 	{

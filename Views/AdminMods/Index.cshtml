@@ -1,0 +1,47 @@
+﻿@model List<YggdrasilWebApp.Models.App.GameModEntity>
+@{
+    ViewData["Title"] = "Mods";
+}
+
+<h1>Mods</h1>
+
+<p>
+    <a class="btn btn-primary" href="@Url.Action("Upload", "AdminMods")">Upload new mod</a>
+</p>
+
+<table class="table table-striped">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Version</th>
+            <th>Install path</th>
+            <th>SHA-256</th>
+            <th>File</th>
+            <th></th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var m in Model)
+        {
+            <tr>
+                <td>@m.Name</td>
+                <td>@m.Version</td>
+                <td>@m.InstallPath</td>
+                <td style="font-family: monospace; font-size: 0.8em;">@m.Sha256</td>
+                <td>
+                    <a href="@("/" + m.FilePath)">download</a>
+                </td>
+                <td>
+                    <form asp-action="Delete" asp-controller="AdminMods" method="post">
+                        <input type="hidden" name="id" value="@m.Id" />
+                        <button type="submit" class="btn btn-sm btn-danger"
+                                onclick="return confirm('Delete this mod?');">
+                            Delete
+                        </button>
+                        @Html.AntiForgeryToken()
+                    </form>
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>

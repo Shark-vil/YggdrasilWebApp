@@ -6,96 +6,123 @@ namespace YggdrasilWebApp.Services;
 
 public sealed class TexturesService
 {
-	private readonly RSA? _rsa;
+	private readonly RSA? _privateRsa;
+	private readonly RSA? _publicRsa;
 
-	// Если ключ не задан — signature будет null, но TexturesValue всё равно обновится
 	public TexturesService(IConfiguration cfg)
 	{
-		// appsettings.json:
-		// "Yggdrasil": { "TexturesPrivateKeyPem": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----" }
-		// либо "TexturesPrivateKeyPath": "C:\\keys\\ygg.pem"
-		var pem = cfg["Yggdrasil:TexturesPrivateKeyPem"];
-		var path = cfg["Yggdrasil:TexturesPrivateKeyPath"];
+		// PRIVATE
+		var privPem = cfg["Yggdrasil:TexturesPrivateKeyPem"];
+		var privPath = cfg["Yggdrasil:TexturesPrivateKeyPath"];
 
-		if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-			pem = File.ReadAllText(path);
+		if (!string.IsNullOrWhiteSpace(privPath) && File.Exists(privPath))
+			privPem = File.ReadAllText(privPath);
 
-		if (!string.IsNullOrWhiteSpace(pem))
+		if (!string.IsNullOrWhiteSpace(privPem))
 		{
-			var rsa = RSA.Create();
-			rsa.ImportFromPem(pem);
-			_rsa = rsa;
+			_privateRsa = RSA.Create();
+			ImportPem(_privateRsa, privPem, isPrivate: true);
+		}
+
+		// PUBLIC
+		var pubPem = cfg["Yggdrasil:TexturesPublicKeyPem"];
+		var pubPath = cfg["Yggdrasil:TexturesPublicKeyPath"];
+
+		if (!string.IsNullOrWhiteSpace(pubPath) && File.Exists(pubPath))
+			pubPem = File.ReadAllText(pubPath);
+
+		if (!string.IsNullOrWhiteSpace(pubPem))
+		{
+			_publicRsa = RSA.Create();
+			ImportPem(_publicRsa, pubPem, isPrivate: false);
+		}
+		else if (_privateRsa is not null)
+		{
+			// Если публичник явно не задан — вытаскиваем из приватника
+			_publicRsa = RSA.Create();
+			_publicRsa.ImportSubjectPublicKeyInfo(_privateRsa.ExportSubjectPublicKeyInfo(), out _);
 		}
 	}
 
-	public bool VerifyExistingTextures(string valueBase64, string signatureBase64)
-	{
-		if (_rsa is null)
-			throw new InvalidOperationException("RSA не инициализирован (нет приватного ключа).");
-
-		var data = Encoding.UTF8.GetBytes(valueBase64);
-		var sig = Convert.FromBase64String(signatureBase64);
-
-		return _rsa.VerifyData(
-			data,
-			sig,
-			HashAlgorithmName.SHA1,
-			RSASignaturePadding.Pkcs1);
-	}
-
+	/// <summary>
+	/// Подпись текстур как у Mojang: SHA1withRSA (PKCS#1 v1.5), данные — UTF8(valueBase64)
+	/// </summary>
 	public (string value, string? signature) BuildSkinTextures(string profileIdN, string profileName, string skinUrl)
 	{
-		// Mojang-like payload: timestamp/profileId/profileName/textures.SKIN.url
 		var payload = new
 		{
 			timestamp = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-			profileId = profileIdN,
+			profileId = profileIdN,   // без дефисов — ок
 			profileName = profileName,
 			textures = new
 			{
-				SKIN = new
-				{
-					url = skinUrl
-				}
+				SKIN = new { url = skinUrl }
 			}
 		};
 
 		var json = JsonSerializer.Serialize(payload);
 		var value = Convert.ToBase64String(Encoding.UTF8.GetBytes(json));
 
-		string? sig = null;
-		if (_rsa != null)
-		{
-			// Mojang historically использует SHA1withRSA (PKCS#1)
-			var data = Encoding.UTF8.GetBytes(value);
-			var signed = _rsa.SignData(data, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
-			sig = Convert.ToBase64String(signed);
-		}
+		if (_privateRsa is null)
+			return (value, null);
+
+		var data = Encoding.UTF8.GetBytes(value);
+
+		// MUST: SHA1 + PKCS#1 v1.5
+		var signed = _privateRsa.SignData(data, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
+		var sig = Convert.ToBase64String(signed);
 
 		return (value, sig);
 	}
 
-	public string? GetPublicKeyPem()
+	/// <summary>
+	/// Проверка подписи textures.signature публичным ключом.
+	/// </summary>
+	public bool VerifyExistingTextures(string valueBase64, string signatureBase64)
 	{
-		if (_rsa is null)
-			return null;
+		if (_publicRsa is null)
+			throw new InvalidOperationException("Public RSA key is not configured.");
 
-		// .NET 7+ — есть готовый ExportSubjectPublicKeyInfoPem
-#if NET7_0_OR_GREATER
-		return _rsa.ExportSubjectPublicKeyInfoPem();
-#else
-    // Для .NET 6 и ниже — руками собираем PEM
-    var info = _rsa.ExportSubjectPublicKeyInfo();
-    var base64 = Convert.ToBase64String(info);
+		var data = Encoding.UTF8.GetBytes(valueBase64);
+		var sig = Convert.FromBase64String(signatureBase64);
 
-    var sb = new StringBuilder();
-    sb.AppendLine("-----BEGIN PUBLIC KEY-----");
-    for (int i = 0; i < base64.Length; i += 64)
-        sb.AppendLine(base64.Substring(i, Math.Min(64, base64.Length - i)));
-    sb.AppendLine("-----END PUBLIC KEY-----");
-
-    return sb.ToString();
-#endif
+		return _publicRsa.VerifyData(data, sig, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
 	}
 
+	/// <summary>
+	/// Возвращает PEM публичного ключа (BEGIN PUBLIC KEY).
+	/// </summary>
+	public string? GetPublicKeyPem()
+	{
+		if (_publicRsa is null && _privateRsa is null)
+			return null;
+
+		var rsa = _publicRsa ?? _privateRsa!;
+		return rsa.ExportSubjectPublicKeyInfoPem(); // .NET 7+
+	}
+
+	public string SignTexturesValue(string valueBase64)
+	{
+		if (_privateRsa is null)
+			throw new InvalidOperationException("Private RSA key is not configured.");
+
+		var data = Encoding.UTF8.GetBytes(valueBase64.Trim());
+		var signed = _privateRsa.SignData(data, HashAlgorithmName.SHA1, RSASignaturePadding.Pkcs1);
+		return Convert.ToBase64String(signed);
+	}
+
+
+	private static void ImportPem(RSA rsa, string pem, bool isPrivate)
+	{
+		try
+		{
+			rsa.ImportFromPem(pem);
+		}
+		catch (Exception ex)
+		{
+			var kind = isPrivate ? "private" : "public";
+			throw new InvalidOperationException(
+				$"Failed to import {kind} RSA key from PEM. Make sure it is valid PEM.", ex);
+		}
+	}
 }

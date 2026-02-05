@@ -46,14 +46,14 @@ public sealed class AuthlibMetadataController : ControllerBase
 				implementationVersion = "1.0.0",
 				links = new
 				{
-					homepage = baseUrl,
-					register = baseUrl + "/account/register"
+					homepage = "https://mc.pipbuck.ru",
+					register = "https://mc.pipbuck.ru/account/register"
 				}
 			},
 			skinDomains = new[]
 			{
 				"mc.pipbuck.ru",
-				".mc.pipbuck.ru"
+				"mcapi.pipbuck.ru",
 			},
 			// ВАЖНО: имя поля должно быть именно таким
 			signaturePublickey = publicKeyPem
@@ -73,5 +73,24 @@ public sealed class AuthlibMetadataController : ControllerBase
 			profile.TexturesSignature ?? "");
 
 		return Ok(new { ok });
+	}
+
+	[HttpPost("debug/resign-all")]
+	public IActionResult ResignAll()
+	{
+		var profiles = _db.Profiles.ToList();
+		int updated = 0;
+
+		foreach (var p in profiles)
+		{
+			if (string.IsNullOrWhiteSpace(p.TexturesValue))
+				continue;
+
+			p.TexturesSignature = _textures.SignTexturesValue(p.TexturesValue);
+			updated++;
+		}
+
+		_db.SaveChanges();
+		return Ok(new { updated });
 	}
 }

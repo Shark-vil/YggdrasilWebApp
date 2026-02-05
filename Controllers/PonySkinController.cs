@@ -18,6 +18,7 @@ public sealed class PonySkinController : Controller
 	private readonly TexturesService _textures;
 
 	private const long MaxUploadBytes = 10 * 1024 * 1024;
+	private const string RouteSkinPngVersioned = "ponySkin_png_v";
 
 	public PonySkinController(AppDbContext db, IWebHostEnvironment env, TexturesService textures)
 	{
@@ -26,23 +27,23 @@ public sealed class PonySkinController : Controller
 		_textures = textures;
 	}
 
-	// ===========================
-	// UI: ТОЛЬКО ДЛЯ ТЕКУЩЕГО ЮЗЕРА
-	// ===========================
-
 	[HttpGet]
 	public async Task<IActionResult> Index(CancellationToken ct)
 	{
-		var (userId, profile) = await GetMyProfileOrNotFound(ct);
+		var (_, profile) = await GetMyProfileOrNotFound(ct);
 		if (profile is null) return NotFound();
 
-		var path = GetSkinPath(profile.Id);
-		var exists = System.IO.File.Exists(path);
-		DateTime? updated = exists ? System.IO.File.GetLastWriteTimeUtc(path) : null;
+		var latestPath = GetSkinPathByProfileId(profile.Id);
+		var exists = !string.IsNullOrWhiteSpace(latestPath) && System.IO.File.Exists(latestPath!);
+		DateTime? updated = exists ? System.IO.File.GetLastWriteTimeUtc(latestPath!) : null;
 
-		var skinUrl = Url.Action(nameof(PublicSkinPng), "PonySkin",
-			new { profileId = profile.Id.ToString("N"), v = updated?.Ticks ?? 0 },
-			protocol: Request.Scheme)!;
+		var uniqueId = exists ? ExtractUniqueIdFromSkinPath(latestPath!) : Guid.Empty;
+
+		var skinUrl = Url.Link(RouteSkinPngVersioned, new
+		{
+			profileId = profile.Id.ToString("N"),
+			uniqueId = uniqueId.ToString("N")
+		})!;
 
 		var vm = new PonySkinViewModel
 		{
@@ -61,7 +62,7 @@ public sealed class PonySkinController : Controller
 	[RequestSizeLimit(MaxUploadBytes)]
 	public async Task<IActionResult> Upload(IFormFile skin, CancellationToken ct)
 	{
-		var (userId, profile) = await GetMyProfileOrNotFound(ct);
+		var (_, profile) = await GetMyProfileOrNotFound(ct);
 		if (profile is null) return NotFound();
 
 		if (skin is null || skin.Length <= 0)
@@ -97,7 +98,6 @@ public sealed class PonySkinController : Controller
 			return RedirectToAction(nameof(Index));
 		}
 
-		// MLP old/new + HD кратность
 		var isOld = (w == 2 * h) && (w % 64 == 0) && (h % 32 == 0);
 		var isNew = (w == h) && (w % 64 == 0);
 
@@ -107,19 +107,21 @@ public sealed class PonySkinController : Controller
 			return RedirectToAction(nameof(Index));
 		}
 
-		// 1) save PNG
+		var uniqueId = Guid.NewGuid();
+
 		Directory.CreateDirectory(GetSkinDir());
-		var finalPath = GetSkinPath(profile.Id);
+		var finalPath = GetSkinPath(profile.Id, uniqueId);
 		var tmpPath = finalPath + ".tmp";
 
 		ms.Position = 0;
 		await System.IO.File.WriteAllBytesAsync(tmpPath, ms.ToArray(), ct);
 		System.IO.File.Move(tmpPath, finalPath, overwrite: true);
 
-		// 2) update TexturesValue/TexturesSignature in DB
-		var publicUrl = Url.Action(nameof(PublicSkinPng), "PonySkin",
-			new { profileId = profile.Id.ToString("N") },
-			protocol: Request.Scheme)!;
+		var publicUrl = Url.Link(RouteSkinPngVersioned, new
+		{
+			profileId = profile.Id.ToString("N"),
+			uniqueId = uniqueId.ToString("N")
+		})!;
 
 		var (value, signature) = _textures.BuildSkinTextures(
 			profileIdN: profile.Id.ToString("N"),
@@ -140,12 +142,24 @@ public sealed class PonySkinController : Controller
 	[ValidateAntiForgeryToken]
 	public async Task<IActionResult> Delete(CancellationToken ct)
 	{
-		var (userId, profile) = await GetMyProfileOrNotFound(ct);
+		var (_, profile) = await GetMyProfileOrNotFound(ct);
 		if (profile is null) return NotFound();
 
-		var path = GetSkinPath(profile.Id);
-		if (System.IO.File.Exists(path))
-			System.IO.File.Delete(path);
+		var dir = GetSkinDir();
+		if (Directory.Exists(dir))
+		{
+			var pattern = $"{profile.Id:N}_*.png";
+			foreach (var f in Directory.EnumerateFiles(dir, pattern))
+			{
+				try { System.IO.File.Delete(f); } catch { }
+			}
+
+			var legacy = GetLegacySkinPath(profile.Id);
+			if (System.IO.File.Exists(legacy))
+			{
+				try { System.IO.File.Delete(legacy); } catch { }
+			}
+		}
 
 		profile.TexturesValue = null;
 		profile.TexturesSignature = null;
@@ -156,43 +170,44 @@ public sealed class PonySkinController : Controller
 		return RedirectToAction(nameof(Index));
 	}
 
-	// ===========================
-	// PUBLIC: skin PNG for clients
-	// ===========================
-
 	[AllowAnonymous]
-	[HttpGet("{controller}/Textures/{profileId}.png")]
-	public async Task<IActionResult> PublicSkinPng(string profileId, CancellationToken ct)
+	[HttpGet("PonySkin/Textures/{profileId}/{uniqueId}.png", Name = RouteSkinPngVersioned)]
+	[HttpGet("PonySkin/Textures/{profileId}.png")]
+	public async Task<IActionResult> PublicSkinPng(string profileId, string? uniqueId, CancellationToken ct)
 	{
 		var pid = GuidHelper.ParseGuidAny(profileId);
 		if (pid is null) return NotFound();
 
-		// профиль должен существовать
 		var existsProfile = await _db.Profiles.AsNoTracking().AnyAsync(p => p.Id == pid.Value, ct);
 		if (!existsProfile) return NotFound();
 
-		var path = GetSkinPath(pid.Value);
-		if (!System.IO.File.Exists(path)) return NotFound();
+		string? path;
 
-		Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
-		Response.Headers.Pragma = "no-cache";
+		if (!string.IsNullOrWhiteSpace(uniqueId))
+		{
+			var uid = GuidHelper.ParseGuidAny(uniqueId);
+			if (uid is null) return NotFound();
+
+			path = GetSkinPath(pid.Value, uid.Value);
+			if (!System.IO.File.Exists(path)) return NotFound();
+
+			Response.Headers["Cache-Control"] = "public, max-age=31536000, immutable";
+			return File(System.IO.File.OpenRead(path), "image/png");
+		}
+
+		path = GetSkinPathByProfileId(pid.Value);
+		if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return NotFound();
+
+		Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+		Response.Headers["Pragma"] = "no-cache";
 
 		return File(System.IO.File.OpenRead(path), "image/png");
 	}
 
-	// ===========================
-	// helpers
-	// ===========================
-
 	private async Task<(Guid userId, MinecraftProfileEntity? profile)> GetMyProfileOrNotFound(CancellationToken ct)
 	{
 		var userId = GetUserIdOrThrow();
-
-		// Если у тебя 1 профиль на юзера — это ровно то, что нужно.
-		// Если вдруг их несколько — берём самый первый созданный и ВСЁ.
-		var profile = await _db.Profiles
-			.FirstOrDefaultAsync(p => p.UserId == userId, ct);
-
+		var profile = await _db.Profiles.FirstOrDefaultAsync(p => p.UserId == userId, ct);
 		return (userId, profile);
 	}
 
@@ -207,6 +222,45 @@ public sealed class PonySkinController : Controller
 	private string GetSkinDir()
 		=> Path.Combine(_env.ContentRootPath, "Storage", "PonySkins");
 
-	private string GetSkinPath(Guid profileId)
+	private string GetLegacySkinPath(Guid profileId)
 		=> Path.Combine(GetSkinDir(), $"{profileId:N}.png");
+
+	private string GetSkinPath(Guid profileId, Guid uniqueId)
+		=> Path.Combine(GetSkinDir(), $"{profileId:N}_{uniqueId:N}.png");
+
+	private string? GetSkinPathByProfileId(Guid profileId)
+	{
+		try
+		{
+			var dir = GetSkinDir();
+			if (!Directory.Exists(dir))
+				return null;
+
+			var pattern = $"{profileId:N}_*.png";
+			var newest = Directory.EnumerateFiles(dir, pattern)
+				.Select(p => new FileInfo(p))
+				.OrderByDescending(f => f.LastWriteTimeUtc)
+				.FirstOrDefault()
+				?.FullName;
+
+			if (!string.IsNullOrWhiteSpace(newest))
+				return newest;
+
+			var legacy = GetLegacySkinPath(profileId);
+			return System.IO.File.Exists(legacy) ? legacy : null;
+		}
+		catch
+		{
+			return null;
+		}
+	}
+
+	private static Guid ExtractUniqueIdFromSkinPath(string fullPath)
+	{
+		var name = Path.GetFileNameWithoutExtension(fullPath);
+		var parts = name.Split('_');
+		if (parts.Length == 2 && Guid.TryParseExact(parts[1], "N", out var uid))
+			return uid;
+		return Guid.Empty;
+	}
 }

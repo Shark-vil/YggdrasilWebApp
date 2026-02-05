@@ -166,6 +166,9 @@ public sealed class AccountController : Controller
 		if (!string.IsNullOrWhiteSpace(user.Email))
 			claims.Add(new Claim(ClaimTypes.Email, user.Email));
 
+		if (user.IsAdmin)
+			claims.Add(new Claim(ClaimTypes.Role, "Admin"));
+
 		var identity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
 		var principal = new ClaimsPrincipal(identity);
 

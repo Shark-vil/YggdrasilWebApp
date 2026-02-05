@@ -108,9 +108,9 @@ public sealed class SessionServerController : ControllerBase
 
 	private static List<ProfileProperty> BuildTexturesProperties(MinecraftProfileEntity profile, bool? unsigned)
 	{
-		// Mojang: если unsigned=true -> без signature; если unsigned=false -> с signature
-		// Если параметр не передан, обычно считается unsigned=true (можешь поменять как хочешь)
-		var includeSig = unsigned == false;
+		// null -> false
+		var isUnsigned = unsigned == true;
+		var includeSig = !isUnsigned;
 
 		var list = new List<ProfileProperty>();
 		if (!string.IsNullOrWhiteSpace(profile.TexturesValue))

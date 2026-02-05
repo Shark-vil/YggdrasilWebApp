@@ -58,6 +58,16 @@ if (!app.Environment.IsDevelopment())
 // Иначе он сам начнет пытаться редиректить на https, но не знает порт.
 // app.UseHttpsRedirection();
 
+{
+	var modsDir = Path.Combine(app.Environment.ContentRootPath, "Storage", "Mods");
+	Directory.CreateDirectory(modsDir);
+}
+
+{
+	var modsDir = Path.Combine(app.Environment.ContentRootPath, "Storage", "PonySkins");
+	Directory.CreateDirectory(modsDir);
+}
+
 app.UseStaticFiles();
 
 app.UseRouting();

@@ -1,0 +1,48 @@
+﻿@model YggdrasilWebApp.Views.UploadModViewModel
+@{
+    ViewData["Title"] = "Upload mod";
+}
+
+<h1>Upload mod</h1>
+
+<form asp-action="Upload" asp-controller="AdminMods" method="post" enctype="multipart/form-data">
+    @Html.AntiForgeryToken()
+
+    <div class="mb-3">
+        <label asp-for="Name" class="form-label"></label>
+        <input asp-for="Name" class="form-control" />
+        <span asp-validation-for="Name" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="Version" class="form-label"></label>
+        <input asp-for="Version" class="form-control" />
+        <span asp-validation-for="Version" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="Description" class="form-label"></label>
+        <textarea asp-for="Description" class="form-control"></textarea>
+        <span asp-validation-for="Description" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="InstallPath" class="form-label"></label>
+        <input asp-for="InstallPath" class="form-control" />
+        <div class="form-text">Default: mods</div>
+        <span asp-validation-for="InstallPath" class="text-danger"></span>
+    </div>
+
+    <div class="mb-3">
+        <label asp-for="File" class="form-label"></label>
+        <input asp-for="File" type="file" class="form-control" />
+        <span asp-validation-for="File" class="text-danger"></span>
+    </div>
+
+    <button type="submit" class="btn btn-primary">Upload</button>
+    <a class="btn btn-secondary" href="@Url.Action("Index", "AdminMods")">Back</a>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
